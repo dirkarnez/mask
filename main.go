@@ -4,37 +4,73 @@ import (
 	"context"
 	"github.com/chromedp/chromedp"
 	"github.com/dirkarnez/wait2die"
+	"gopkg.in/yaml.v2"
+	"io/ioutil"
 	"log"
+	"strconv"
+	"syscall"
 	"time"
 )
 
+type Config struct {
+	Sites map[string]struct{
+		URL             string `yaml:"url"`
+		Evaluate        string `yaml:"evaluate"`
+		IntervalSeconds int    `yaml:"interval-seconds"`
+	} `yaml:"config"`
+}
+
+func MyBeep() {
+	beep := syscall.MustLoadDLL("user32.dll").MustFindProc("MessageBeep")
+	for i := 0; i < 10; i++ {
+		beep.Call(0xffffffff)
+		time.Sleep(1 * time.Second)
+	}
+}
+
 func main() {
+	file, err := ioutil.ReadFile("config.yml")
+	var config Config
+	err = yaml.Unmarshal(file, &config)
+	if err != nil {
+		log.Fatalf("cannot unmarshal data: %v", err)
+	}
+
 	opts := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.Flag("headless", false))
 	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
 	defer cancel()
 
-	go crawl(allocCtx)
-	go crawl(allocCtx)
+	for _, s := range config.Sites {
+		go Crawl(allocCtx, s.URL, s.Evaluate, s.IntervalSeconds)
+	}
 
 	wait2die.WaitToDie(nil)
 }
 
-func crawl(context context.Context) {
+func Crawl(context context.Context, url, evaluate string, intervalSeconds int) {
 	taskCtx, cancel := chromedp.NewContext(
 		context,
 		chromedp.WithLogf(log.Printf))
 	defer cancel()
 
-	var example string
-	for example != "false" {
+	var notAvailable = true
+
+	for notAvailable {
+		var err error
 		var result []byte
+
 		chromedp.Run(taskCtx,
-			chromedp.Navigate(`https://www.bonjourhk.com/tc/search/%E5%8F%A3%E7%BD%A9/1030503`),
-			chromedp.Evaluate(`document.evaluate("(//div[@id='content']/div[@class='row']//div[@class='white']/div[@class='row']/div)[2]", document, null, XPathResult.ANY_TYPE, null).iterateNext().innerHTML.indexOf("暫時缺貨") > -1`, &result),
+			chromedp.Navigate(url),
+			chromedp.Evaluate(evaluate, &result),
 		)
 
-		example = string(result)
-		log.Println(example)
-		time.Sleep(5 * time.Second)
+		notAvailable, err = strconv.ParseBool(string(result))
+		if err != nil {
+			notAvailable = true
+		}
+
+		time.Sleep(time.Duration(intervalSeconds) * time.Second)
 	}
+
+	MyBeep()
 }
