@@ -40,26 +40,26 @@ func main() {
 	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
 	defer cancel()
 
-	for _, s := range config.Sites {
-		go Crawl(allocCtx, s.URL, s.Evaluate, s.IntervalSeconds)
+	taskCtx, cancel := chromedp.NewContext(
+		allocCtx,
+		chromedp.WithLogf(log.Printf))
+
+	for key, s := range config.Sites {
+		go Crawl(taskCtx, key, s.URL, s.Evaluate, s.IntervalSeconds)
 	}
 
 	wait2die.WaitToDie(nil)
 }
 
-func Crawl(context context.Context, url, evaluate string, intervalSeconds int) {
-	taskCtx, cancel := chromedp.NewContext(
-		context,
-		chromedp.WithLogf(log.Printf))
-	defer cancel()
-
+func Crawl(taskCtx context.Context, name, url, evaluate string, intervalSeconds int) {
+	ctx, _ := chromedp.NewContext(taskCtx)
 	var notAvailable = true
 
 	for notAvailable {
 		var err error
 		var result []byte
 
-		chromedp.Run(taskCtx,
+		chromedp.Run(ctx,
 			chromedp.Navigate(url),
 			chromedp.Evaluate(evaluate, &result),
 		)
@@ -69,8 +69,16 @@ func Crawl(context context.Context, url, evaluate string, intervalSeconds int) {
 			notAvailable = true
 		}
 
+		if notAvailable {
+			log.Printf(`%s is not available`, name)
+		} else {
+			log.Printf(`%s is available`, name)
+		}
+
 		time.Sleep(time.Duration(intervalSeconds) * time.Second)
 	}
 
 	MyBeep()
+
+	for { select{ } }
 }
